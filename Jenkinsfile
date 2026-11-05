@@ -8,6 +8,29 @@ pipeline {
             }
         }
 
+        stage('Retrieve Application Secrets') {
+            steps {
+                script {
+                    def secret = sh(
+                        script: '''
+                            aws secretsmanager get-secret-value \
+                            --secret-id telecom-cicd/app \
+                            --region us-east-1 \
+                            --query SecretString \
+                            --output text
+                        ''',
+                        returnStdout: true
+                    ).trim()
+
+                    def credentials = readJSON text: secret
+
+                    env.DB_USERNAME = credentials.DB_USERNAME
+                    env.DB_PASSWORD = credentials.DB_PASSWORD
+                    env.BILLING_API_KEY = credentials.BILLING_API_KEY
+                }
+            }
+        }
+
         stage('Build') {
             steps {
                 echo 'Build stage will be configured in Step 3'
