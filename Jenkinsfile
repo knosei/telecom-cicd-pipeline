@@ -5,6 +5,16 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo 'Checking out source code'
+                checkout scm
+            }
+        }
+
+        stage('Secret Scanning') {
+            steps {
+                echo 'Scanning repository for exposed secrets'
+                sh '''
+                    trufflehog git file://. --fail
+                '''
             }
         }
 
