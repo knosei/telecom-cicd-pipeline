@@ -13,7 +13,7 @@ pipeline {
             steps {
                 echo 'Scanning repository for exposed secrets'
                 sh '''
-                    trufflehog git file://. --fail
+                    trufflehog --no-update git file://. --fail
                 '''
             }
         }
