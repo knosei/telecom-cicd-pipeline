@@ -59,9 +59,51 @@ pipeline {
             }
         }
 
+        
         stage('Docker Build & Push') {
             steps {
-                echo 'Docker and ECR will be configured in Step 3'
+                script {
+                    env.AWS_REGION = 'us-east-1'
+                    env.ECR_REPOSITORY = 'telecom-cicd-pipeline'
+
+                    env.AWS_ACCOUNT_ID = sh(
+                        script: 'aws sts get-caller-identity --query Account --output text',
+                        returnStdout: true
+                    ).trim()
+
+                    env.IMAGE_TAG = env.BUILD_NUMBER
+
+                    env.IMAGE_URI = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}"
+
+                    sh '''
+                        set -eu
+
+                        echo "Checking Dockerfile..."
+
+                        test -f Dockerfile
+
+                        echo "Authenticating with Amazon ECR..."
+
+                        aws ecr get-login-password \
+                            --region "$AWS_REGION" \
+                            | docker login \
+                            --username AWS \
+                            --password-stdin \
+                            "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+
+                        echo "Building Docker image..."
+
+                        docker build -t "$IMAGE_URI" .
+
+                        echo "Pushing image to Amazon ECR..."
+
+                        docker push "$IMAGE_URI"
+
+                        echo "Docker image successfully pushed."
+                    '''
+
+                    echo "Image URI: ${env.IMAGE_URI}"
+                }
             }
         }
 
