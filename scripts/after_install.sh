@@ -5,10 +5,26 @@ set -e
 
 AWS_REGION="us-east-1"
 AWS_ACCOUNT_ID="627073650114"
-IMAGE_TAG="YOUR_IMAGE_TAG"
 
 ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-IMAGE="${ECR_REGISTRY}/telecom-cicd-pipeline:${IMAGE_TAG}"
+
+echo "Reading deployment image details..."
+
+DEPLOYMENT_ENV="/opt/telecom-cicd/deployment.env"
+
+if [ ! -f "${DEPLOYMENT_ENV}" ]; then
+    echo "ERROR: deployment.env not found."
+    exit 1
+fi
+
+source "${DEPLOYMENT_ENV}"
+
+if [ -z "${IMAGE_URI:-}" ]; then
+    echo "ERROR: IMAGE_URI is missing from deployment.env."
+    exit 1
+fi
+
+echo "Image to deploy: ${IMAGE_URI}"
 
 echo "Retrieving application secrets..."
 
@@ -43,7 +59,7 @@ aws ecr get-login-password \
 
 echo "Pulling Docker image..."
 
-docker pull "${IMAGE}"
+docker pull "${IMAGE_URI}"
 
 echo "Starting application..."
 
@@ -52,6 +68,6 @@ docker run -d \
     --restart unless-stopped \
     --env-file /opt/telecom-cicd/app.env \
     -p 5000:5000 \
-    "${IMAGE}"
+    "${IMAGE_URI}"
 
 echo "Application deployment completed."

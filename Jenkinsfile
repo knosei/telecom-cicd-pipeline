@@ -1,5 +1,14 @@
+
 pipeline {
     agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        ECR_REPOSITORY = 'telecom-cicd-pipeline'
+        CODEDEPLOY_BUCKET = 'telecom-cicd-codedeploy-artifacts-2026'
+        CODEDEPLOY_APPLICATION = 'telecom-cicd-application'
+        CODEDEPLOY_GROUP = 'telecom-cicd-deployment-group'
+    }
 
     stages {
         stage('Checkout') {
@@ -25,7 +34,7 @@ pipeline {
                         script: '''
                             aws secretsmanager get-secret-value \
                             --secret-id telecom-cicd/app \
-                            --region us-east-1 \
+                            --region "$AWS_REGION" \
                             --query SecretString \
                             --output text
                         ''',
@@ -59,13 +68,9 @@ pipeline {
             }
         }
 
-        
         stage('Docker Build & Push') {
             steps {
                 script {
-                    env.AWS_REGION = 'us-east-1'
-                    env.ECR_REPOSITORY = 'telecom-cicd-pipeline'
-
                     env.AWS_ACCOUNT_ID = sh(
                         script: 'aws sts get-caller-identity --query Account --output text',
                         returnStdout: true
@@ -79,7 +84,6 @@ pipeline {
                         set -eu
 
                         echo "Checking Dockerfile..."
-
                         test -f Dockerfile
 
                         echo "Authenticating with Amazon ECR..."
@@ -109,20 +113,153 @@ pipeline {
 
         stage('Deploy to Staging') {
             steps {
-                echo 'Staging deployment will be configured in Step 3'
+                echo 'Staging deployment is not yet connected to a separate CodeDeploy deployment group.'
+                echo 'The production deployment group will not be used for staging.'
             }
         }
 
         stage('Smoke Test') {
             steps {
-                echo 'Smoke testing will be configured in Step 3'
+                echo 'Smoke testing will be configured when the staging deployment is implemented.'
+            }
+        }
+
+        stage('Approve Production Deployment') {
+            when {
+                expression {
+                    return env.BRANCH_NAME == 'main' ||
+                           env.GIT_BRANCH == 'origin/main' ||
+                           env.GIT_BRANCH == 'main'
+                }
+            }
+            steps {
+                input message: 'Approve deployment to the production Auto Scaling Group?',
+                      ok: 'Deploy'
             }
         }
 
         stage('Deploy to Production') {
-            steps {
-                echo 'Production deployment will be configured in Step 3'
+            when {
+                expression {
+                    return env.BRANCH_NAME == 'main' ||
+                           env.GIT_BRANCH == 'origin/main' ||
+                           env.GIT_BRANCH == 'main'
+                }
             }
+
+            steps {
+                script {
+                    echo 'Reading the previous successful image tag...'
+
+                    env.PREVIOUS_IMAGE_TAG = sh(
+                        script: """
+                            aws s3 cp \
+                            s3://${CODEDEPLOY_BUCKET}/rollback/last-successful-image.txt \
+                            - --region ${AWS_REGION}
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    if (!(env.PREVIOUS_IMAGE_TAG ==~ /^[0-9]+$/)) {
+                        error('Previous successful image tag is missing or invalid.')
+                    }
+
+                    echo "Previous successful image tag: ${env.PREVIOUS_IMAGE_TAG}"
+                    echo "New image tag: ${env.IMAGE_TAG}"
+
+                    echo 'Checking deployment files...'
+
+                    sh '''
+                        set -eu
+
+                        test -f appspec.yml
+                        test -f scripts/before_install.sh
+                        test -f scripts/after_install.sh
+                        test -f scripts/validate_service.sh
+
+                        chmod +x scripts/*.sh
+
+                        echo "Creating deployment.env..."
+
+                        cat > deployment.env <<EOF
+IMAGE_URI=${IMAGE_URI}
+IMAGE_TAG=${IMAGE_TAG}
+EOF
+
+                        echo "Creating deployment bundle..."
+
+                        rm -f deployment-bundle.zip
+
+                        zip -r deployment-bundle.zip \
+                            appspec.yml \
+                            scripts \
+                            deployment.env
+
+                        echo "Checking ZIP contents..."
+
+                        unzip -l deployment-bundle.zip
+                    '''
+
+                    echo 'Uploading deployment bundle to S3...'
+
+                    sh '''
+                        aws s3 cp deployment-bundle.zip \
+                        "s3://${CODEDEPLOY_BUCKET}/revisions/${BUILD_NUMBER}/deployment-bundle.zip" \
+                        --region "$AWS_REGION"
+                    '''
+
+                    echo 'Starting CodeDeploy deployment...'
+
+                    env.CODEDEPLOY_DEPLOYMENT_ID = sh(
+                        script: """
+                            aws deploy create-deployment \
+                            --application-name ${CODEDEPLOY_APPLICATION} \
+                            --deployment-group-name ${CODEDEPLOY_GROUP} \
+                            --s3-location bucket=${CODEDEPLOY_BUCKET},key=revisions/${BUILD_NUMBER}/deployment-bundle.zip,bundleType=zip \
+                            --region ${AWS_REGION} \
+                            --query deploymentId \
+                            --output text
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    echo "CodeDeploy deployment ID: ${env.CODEDEPLOY_DEPLOYMENT_ID}"
+
+                    echo 'Waiting for CodeDeploy deployment to finish...'
+
+                    timeout(time: 15, unit: 'MINUTES') {
+                        sh """
+                            aws deploy wait deployment-successful \
+                            --deployment-id ${env.CODEDEPLOY_DEPLOYMENT_ID} \
+                            --region ${AWS_REGION}
+                        """
+                    }
+
+                    echo 'CodeDeploy deployment succeeded.'
+
+                    echo 'Updating the last successful image tag in S3...'
+
+                    sh '''
+                        printf '%s\\n' "$IMAGE_TAG" | \
+                        aws s3 cp - \
+                        "s3://${CODEDEPLOY_BUCKET}/rollback/last-successful-image.txt" \
+                        --region "$AWS_REGION"
+                    '''
+
+                    echo "Last successful image updated to ${env.IMAGE_TAG}"
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Jenkins pipeline completed successfully.'
+        }
+
+        failure {
+            echo 'Jenkins pipeline failed. Check the failed stage and CodeDeploy deployment status.'
+            echo 'CodeDeploy automatic rollback should handle a failed deployment if enabled in the deployment group.'
         }
     }
 }
