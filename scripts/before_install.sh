@@ -8,7 +8,7 @@ systemctl start docker
 
 mkdir -p /opt/telecom-cicd
 
-docker stop telecom-cicd-pipeline || true
-docker rm telecom-cicd-pipeline || true
+# docker stop telecom-cicd-pipeline || true
+# docker rm telecom-cicd-pipeline || true
 
 echo "Previous application container removed."

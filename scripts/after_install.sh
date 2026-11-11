@@ -5,32 +5,29 @@ set -e
 
 AWS_REGION="us-east-1"
 AWS_ACCOUNT_ID="627073650114"
-
 ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-
-echo "Reading deployment image details..."
 
 DEPLOYMENT_ENV="/opt/telecom-cicd/deployment.env"
 
-if [ ! -f "${DEPLOYMENT_ENV}" ]; then
-    echo "ERROR: deployment.env not found."
+echo "Reading deployment details..."
+
+if [ ! -f "$DEPLOYMENT_ENV" ]; then
+    echo "deployment.env not found."
     exit 1
 fi
 
-source "${DEPLOYMENT_ENV}"
+source "$DEPLOYMENT_ENV"
 
 if [ -z "${IMAGE_URI:-}" ]; then
-    echo "ERROR: IMAGE_URI is missing from deployment.env."
+    echo "IMAGE_URI is missing."
     exit 1
 fi
-
-echo "Image to deploy: ${IMAGE_URI}"
 
 echo "Retrieving application secrets..."
 
 SECRET_JSON=$(aws secretsmanager get-secret-value \
     --secret-id telecom-cicd/app \
-    --region "${AWS_REGION}" \
+    --region "$AWS_REGION" \
     --query SecretString \
     --output text)
 
@@ -49,25 +46,27 @@ with open("/opt/telecom-cicd/app.env", "w") as f:
 
 chmod 600 /opt/telecom-cicd/app.env
 
-echo "Logging into Amazon ECR..."
+echo "Logging into ECR..."
 
 aws ecr get-login-password \
-    --region "${AWS_REGION}" \
+    --region "$AWS_REGION" \
     | docker login \
     --username AWS \
-    --password-stdin "${ECR_REGISTRY}"
+    --password-stdin "$ECR_REGISTRY"
 
-echo "Pulling Docker image..."
+echo "Pulling new image: $IMAGE_URI"
 
-docker pull "${IMAGE_URI}"
+docker pull "$IMAGE_URI"
 
-echo "Starting application..."
+echo "Replacing application container..."
+
+docker rm -f telecom-cicd-pipeline || true
 
 docker run -d \
     --name telecom-cicd-pipeline \
     --restart unless-stopped \
     --env-file /opt/telecom-cicd/app.env \
     -p 5000:5000 \
-    "${IMAGE_URI}"
+    "$IMAGE_URI"
 
 echo "Application deployment completed."

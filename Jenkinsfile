@@ -111,6 +111,68 @@ pipeline {
             }
         }
 
+        stage('Prepare CodeDeploy Bundle') {
+            steps {
+                script {
+                    env.SAFE_BRANCH = (env.BRANCH_NAME ?: 'unknown')
+                .replaceAll('[^A-Za-z0-9._-]', '-')
+
+                    env.CODEDEPLOY_S3_KEY =
+                "revisions/${env.SAFE_BRANCH}/${env.BUILD_NUMBER}/deployment-bundle.zip"
+
+                    echo 'Checking CodeDeploy deployment files...'
+
+                    sh '''
+                set -eu
+
+                test -f appspec.yml
+                test -f scripts/before_install.sh
+                test -f scripts/after_install.sh
+                test -f scripts/validate_service.sh
+
+                chmod +x scripts/*.sh
+
+                echo "Creating deployment.env..."
+
+                cat > deployment.env <<EOF
+IMAGE_URI=${IMAGE_URI}
+IMAGE_TAG=${IMAGE_TAG}
+EOF
+
+                echo "Creating deployment bundle..."
+
+                rm -f deployment-bundle.zip
+
+                zip -r deployment-bundle.zip \
+                    appspec.yml \
+                    scripts \
+                    deployment.env
+
+                echo "Checking deployment bundle contents..."
+
+                unzip -l deployment-bundle.zip
+            '''
+
+                    echo 'Uploading deployment bundle to S3...'
+
+                    sh '''
+                aws s3 cp deployment-bundle.zip \
+                    "s3://${CODEDEPLOY_BUCKET}/${CODEDEPLOY_S3_KEY}" \
+                    --region "$AWS_REGION"
+
+                echo "Verifying uploaded bundle..."
+
+                aws s3api head-object \
+                    --bucket "$CODEDEPLOY_BUCKET" \
+                    --key "$CODEDEPLOY_S3_KEY" \
+                    --region "$AWS_REGION"
+            '''
+
+                    echo "Deployment bundle uploaded: ${env.CODEDEPLOY_S3_KEY}"
+                }
+            }
+        }
+
         stage('Deploy to Staging') {
             steps {
                 echo 'Staging deployment is not yet connected to a separate CodeDeploy deployment group.'
@@ -215,7 +277,7 @@ EOF
                             aws deploy create-deployment \
                             --application-name ${CODEDEPLOY_APPLICATION} \
                             --deployment-group-name ${CODEDEPLOY_GROUP} \
-                            --s3-location bucket=${CODEDEPLOY_BUCKET},key=revisions/${BUILD_NUMBER}/deployment-bundle.zip,bundleType=zip \
+                            --s3-location bucket=${CODEDEPLOY_BUCKET},key=${env.CODEDEPLOY_S3_KEY},bundleType=zip \
                             --region ${AWS_REGION} \
                             --query deploymentId \
                             --output text
