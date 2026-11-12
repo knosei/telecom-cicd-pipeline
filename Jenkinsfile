@@ -118,7 +118,7 @@ pipeline {
                 .replaceAll('[^A-Za-z0-9._-]', '-')
 
                     env.CODEDEPLOY_S3_KEY =
-                "revisions/${env.SAFE_BRANCH}/${env.BUILD_NUMBER}/deployment-bundle.zip"
+                "revisions/${env.BUILD_NUMBER}/deployment-bundle.zip"
 
                     echo 'Checking CodeDeploy deployment files...'
 
