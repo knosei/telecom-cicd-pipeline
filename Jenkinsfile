@@ -57,19 +57,76 @@ pipeline {
 
         stage('Build') {
             steps {
-                echo 'TODO: install and validate Python project dependencies (not yet a build gate).'
+                echo 'Installing Python dependencies...'
+
+                sh '''
+            set -eu
+
+            python3 --version
+
+            python3 -m venv .venv
+
+            .venv/bin/python -m pip install --upgrade pip
+
+            .venv/bin/python -m pip install -r requirements.txt
+
+            .venv/bin/python -m pip install pytest-cov
+
+            echo "Python dependencies installed successfully."
+        '''
             }
         }
 
         stage('Unit Test') {
             steps {
-                echo 'TODO: run pytest and enforce coverage (not yet a test gate).'
+                echo 'Running automated unit tests...'
+
+                sh '''
+            set -eu
+
+            .venv/bin/python -m pytest tests/ \
+                -v \
+                --cov=app \
+                --cov-report=term-missing \
+                --cov-report=xml:coverage.xml \
+                --junitxml=test-results.xml
+
+            test -s coverage.xml
+
+            echo "Unit tests passed and coverage report generated."
+        '''
+            }
+
+            post {
+                always {
+                    junit allowEmptyResults: true,
+                  testResults: 'test-results.xml'
+
+                    archiveArtifacts artifacts: 'coverage.xml',
+                             allowEmptyArchive: true
+                }
             }
         }
 
         stage('SonarQube Scan') {
             steps {
-                echo 'TODO: run SonarQube and wait for quality gate (not yet a security/quality gate).'
+                script {
+                    def scannerHome = tool 'SonarScanner'
+
+                    withSonarQubeEnv('SonarQube') {
+                        sh """
+                    "${scannerHome}/bin/sonar-scanner"
+                """
+                    }
+                }
+            }
+        }
+
+        stage('SonarQube Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
             }
         }
 
