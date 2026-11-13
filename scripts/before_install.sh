@@ -1,14 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-set -e
-
-echo "Preparing application deployment..."
-
+echo 'Preparing instance for deployment...'
 systemctl start docker
-
 mkdir -p /opt/telecom-cicd
-
-# docker stop telecom-cicd-pipeline || true
-# docker rm telecom-cicd-pipeline || true
-
-echo "Previous application container removed."
+# Do not stop the old container here; after_install.sh pulls before replacement.
