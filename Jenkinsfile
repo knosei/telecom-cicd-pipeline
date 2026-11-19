@@ -13,6 +13,10 @@ pipeline {
         CODEDEPLOY_BUCKET = 'telecom-cicd-codedeploy-artifacts-2026'
         CODEDEPLOY_APPLICATION = 'telecom-cicd-application'
         CODEDEPLOY_GROUP = 'telecom-cicd-deployment-group'
+        STAGING_CODEDEPLOY_GROUP = 'telecom-cicd-staging-group'
+        STAGING_URL = 'http://telecom-cicd-staging-alb-1656323563.us-east-1.elb.amazonaws.com'
+        IS_PRODUCTION_BRANCH = 'false'
+        IS_STAGING_BRANCH = 'false'
         DEPLOYMENT_STARTED = 'false'
         PREVIOUS_REVISION_KEY = ''
         CODEDEPLOY_DEPLOYMENT_ID = ''
@@ -23,13 +27,12 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    // The job currently builds dev. Only origin/main/main can deploy to production.
-                    env.IS_PRODUCTION_BRANCH = (
-                        env.BRANCH_NAME == 'main' ||
-                        env.GIT_BRANCH == 'origin/main' ||
-                        env.GIT_BRANCH == 'main'
-                    ) ? 'true' : 'false'
+                    def branch = env.BRANCH_NAME ?: env.GIT_BRANCH ?: env.GIT_LOCAL_BRANCH ?: ''
+                    env.IS_PRODUCTION_BRANCH = (branch in ['main', 'origin/main']) ? 'true' : 'false'
+                    env.IS_STAGING_BRANCH = (branch in ['dev', 'origin/dev']) ? 'true' : 'false'
+                    echo "Resolved branch: ${branch}"
                     echo "Production branch: ${env.IS_PRODUCTION_BRANCH}"
+                    echo "Staging branch: ${env.IS_STAGING_BRANCH}"
                 }
             }
         }
@@ -58,52 +61,37 @@ pipeline {
         stage('Build') {
             steps {
                 echo 'Installing Python dependencies...'
-
                 sh '''
-            set -eu
-
-            python3 --version
-
-            python3 -m venv .venv
-
-            .venv/bin/python -m pip install --upgrade pip
-
-            .venv/bin/python -m pip install -r requirements.txt
-
-            .venv/bin/python -m pip install pytest-cov
-
-            echo "Python dependencies installed successfully."
-        '''
+                    set -eu
+                    python3 --version
+                    python3 -m venv .venv
+                    .venv/bin/python -m pip install --upgrade pip
+                    .venv/bin/python -m pip install -r requirements.txt
+                    .venv/bin/python -m pip install pytest-cov
+                    echo "Python dependencies installed successfully."
+                '''
             }
         }
 
         stage('Unit Test') {
             steps {
                 echo 'Running automated unit tests...'
-
                 sh '''
-            set -eu
-
-            .venv/bin/python -m pytest tests/ \
-                -v \
-                --cov=app \
-                --cov-report=term-missing \
-                --cov-report=xml:coverage.xml \
-                --junitxml=test-results.xml
-
-            test -s coverage.xml
-
-            echo "Unit tests passed and coverage report generated."
-        '''
+                    set -eu
+                    .venv/bin/python -m pytest tests/ \
+                        -v \
+                        --cov=app \
+                        --cov-report=term-missing \
+                        --cov-report=xml:coverage.xml \
+                        --junitxml=test-results.xml
+                    test -s coverage.xml
+                    echo "Unit tests passed and coverage report generated."
+                '''
             }
-
             post {
                 always {
-                    junit allowEmptyResults: true,
-                  testResults: 'test-results.xml'
-
-                    archiveArtifacts artifacts: 'coverage.xml',
-                             allowEmptyArchive: true
+                    junit allowEmptyResults: true, testResults: 'test-results.xml'
+                    archiveArtifacts artifacts: 'coverage.xml', allowEmptyArchive: true
                 }
             }
         }
@@ -112,11 +100,8 @@ pipeline {
             steps {
                 script {
                     def scannerHome = tool 'SonarScanner'
-
                     withSonarQubeEnv('SonarQube') {
-                        sh """
-                    "${scannerHome}/bin/sonar-scanner"
-                """
+                        sh "\"${scannerHome}/bin/sonar-scanner\""
                     }
                 }
             }
@@ -154,10 +139,15 @@ pipeline {
         }
 
         stage('Prepare CodeDeploy Bundle') {
-            when { expression { env.IS_PRODUCTION_BRANCH == 'true' } }
+            when {
+                expression {
+                    env.IS_STAGING_BRANCH == 'true' || env.IS_PRODUCTION_BRANCH == 'true'
+                }
+            }
             steps {
                 script {
-                    env.CODEDEPLOY_S3_KEY = "revisions/main/${env.BUILD_NUMBER}/deployment-bundle.zip"
+                    def deployBranch = env.IS_PRODUCTION_BRANCH == 'true' ? 'main' : 'dev'
+                    env.CODEDEPLOY_S3_KEY = "revisions/${deployBranch}/${env.BUILD_NUMBER}/deployment-bundle.zip"
                     sh '''
                         set -eu
                         test -f appspec.yml
@@ -178,20 +168,53 @@ pipeline {
                           --region "$AWS_REGION" \
                           --query ContentLength --output text
                     '''
+                    echo "Prepared revision: ${env.CODEDEPLOY_S3_KEY}"
                 }
             }
         }
 
         stage('Deploy to Staging') {
+            when { expression { env.IS_STAGING_BRANCH == 'true' } }
             steps {
-                echo 'Not configured: staging requires its own deployment group and application instances.'
-                echo 'No production resources will be used for staging.'
+                script {
+                    echo 'Starting staging CodeDeploy deployment...'
+                    env.STAGING_DEPLOYMENT_ID = sh(
+                        script: '''
+                            aws deploy create-deployment \
+                              --application-name "$CODEDEPLOY_APPLICATION" \
+                              --deployment-group-name "$STAGING_CODEDEPLOY_GROUP" \
+                              --s3-location "bucket=${CODEDEPLOY_BUCKET},key=${CODEDEPLOY_S3_KEY},bundleType=zip" \
+                              --file-exists-behavior OVERWRITE \
+                              --region "$AWS_REGION" \
+                              --query deploymentId --output text
+                        ''',
+                        returnStdout: true
+                    ).trim()
+                    echo "Staging CodeDeploy deployment ID: ${env.STAGING_DEPLOYMENT_ID}"
+                    timeout(time: 15, unit: 'MINUTES') {
+                        sh '''
+                            aws deploy wait deployment-successful \
+                              --deployment-id "$STAGING_DEPLOYMENT_ID" \
+                              --region "$AWS_REGION"
+                        '''
+                    }
+                    echo 'Staging CodeDeploy deployment succeeded.'
+                }
             }
         }
 
         stage('Smoke Test (Staging)') {
+            when { expression { env.IS_STAGING_BRANCH == 'true' } }
             steps {
-                echo 'Not configured: staging smoke tests require a deployed staging environment.'
+                sh '''
+                    set -eu
+                    curl --fail --show-error \
+                         --retry 5 \
+                         --retry-delay 3 \
+                         --max-time 10 \
+                         "$STAGING_URL/health"
+                    echo 'Staging smoke test passed.'
+                '''
             }
         }
 
@@ -260,7 +283,7 @@ pipeline {
                                   --region "$AWS_REGION"
                             '''
                         }
-                        // This is the ONLY place a new successful tag is recorded.
+                        // This is the ONLY place a new successful production tag is recorded.
                         sh '''
                             set -eu
                             printf '%s\\n' "$IMAGE_TAG" | aws s3 cp - \
@@ -364,7 +387,7 @@ pipeline {
     }
 
     post {
-        success { echo 'Pipeline finished. NOTE: Build/tests/SonarQube/staging are still placeholders.' }
-        failure { echo 'Pipeline FAILED. Check the deployment and rollback IDs above if a deployment started.' }
+        success { echo 'Pipeline completed successfully. CI quality gates passed; branch-specific deployment stages completed or were skipped as configured.' }
+        failure { echo 'Pipeline FAILED. Check the failed stage and any CodeDeploy deployment/rollback IDs above.' }
     }
 }
