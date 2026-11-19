@@ -14,7 +14,6 @@ pipeline {
 
         CODEDEPLOY_BUCKET = 'telecom-cicd-codedeploy-artifacts-2026'
         CODEDEPLOY_APPLICATION = 'telecom-cicd-application'
-
         CODEDEPLOY_GROUP = 'telecom-cicd-deployment-group'
         STAGING_CODEDEPLOY_GROUP = 'telecom-cicd-staging-group'
 
@@ -37,43 +36,40 @@ pipeline {
                 script {
                     echo 'Checking out source code...'
 
-                    // Perform checkout before attempting branch detection.
                     def checkoutInfo = checkout scm
 
-                    // Prefer the branch reported by the Git checkout.
+                    // Use the branch configured in Jenkins Pipeline SCM.
+                    // Fall back to checkout information if necessary.
                     def rawBranch = (
+                        scm.branches?.getAt(0)?.name ?:
                         checkoutInfo?.GIT_BRANCH ?:
                         env.BRANCH_NAME ?:
                         env.GIT_BRANCH ?:
                         ''
-                    ).trim()
-
-                    // Fallback for a Pipeline-from-SCM job.
-                    if (!rawBranch) {
-                        rawBranch = (
-                            scm.branches?.getAt(0)?.name ?: ''
-                        ).trim()
-                    }
+                    ).toString().trim()
 
                     echo "SCM branch reference: ${rawBranch}"
 
-                    // Normalize common Git branch reference formats.
+                    // Normalize common Git branch formats.
+                    // Examples:
+                    // origin/dev -> dev
+                    // */dev -> dev
+                    // refs/heads/main -> main
                     def branch = rawBranch
-                        .replaceFirst(/^refs\/remotes\//, '')
-                        .replaceFirst(/^refs\/heads\//, '')
-                        .replaceFirst(/^\*\//, '')
-                        .replaceFirst(/^origin\//, '')
+                        .replace('refs/remotes/origin/', '')
+                        .replace('refs/heads/', '')
+                        .replace('origin/', '')
+                        .replace('*/', '')
 
-                    // Fail closed if we cannot identify an approved branch.
+                    // Fail closed for unrecognized branches.
                     if (!(branch in ['dev', 'main'])) {
                         error(
-                            "Unrecognized branch '${rawBranch}'. " +
+                            "Unsupported deployment branch: ${rawBranch}. " +
                             "Deployment is blocked."
                         )
                     }
 
-                    // Verify the actual checked-out commit belongs to
-                    // the remote branch selected for this build.
+                    // Verify the checked-out commit.
                     def actualCommit = sh(
                         script: 'git rev-parse HEAD',
                         returnStdout: true
@@ -86,7 +82,7 @@ pipeline {
 
                     if (actualCommit != expectedCommit) {
                         error(
-                            "Checkout does not match origin/${branch}. " +
+                            "Checked-out commit does not match origin/${branch}. " +
                             "Deployment is blocked."
                         )
                     }
@@ -94,10 +90,10 @@ pipeline {
                     env.RESOLVED_BRANCH = branch
 
                     env.IS_PRODUCTION_BRANCH =
-                        branch == 'main' ? 'true' : 'false'
+                        (branch == 'main') ? 'true' : 'false'
 
                     env.IS_STAGING_BRANCH =
-                        branch == 'dev' ? 'true' : 'false'
+                        (branch == 'dev') ? 'true' : 'false'
 
                     echo "Resolved branch: ${env.RESOLVED_BRANCH}"
                     echo "Production branch: ${env.IS_PRODUCTION_BRANCH}"
@@ -143,14 +139,10 @@ pipeline {
                     set -eu
 
                     python3 --version
-
                     python3 -m venv .venv
 
                     .venv/bin/python -m pip install --upgrade pip
-
-                    .venv/bin/python -m pip install \
-                      -r requirements.txt
-
+                    .venv/bin/python -m pip install -r requirements.txt
                     .venv/bin/python -m pip install pytest-cov
 
                     echo 'Python dependencies installed successfully.'
@@ -199,7 +191,9 @@ pipeline {
                     def scannerHome = tool 'SonarScanner'
 
                     withSonarQubeEnv('SonarQube') {
-                        sh "\"${scannerHome}/bin/sonar-scanner\""
+                        sh """
+                            "${scannerHome}/bin/sonar-scanner"
+                        """
                     }
                 }
             }
@@ -245,7 +239,6 @@ pipeline {
                             "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 
                         docker build -t "$IMAGE_URI" .
-
                         docker push "$IMAGE_URI"
                     '''
 
@@ -419,7 +412,6 @@ pipeline {
 
             steps {
                 script {
-
                     // Retrieve the last successful CodeDeploy revision.
                     def priorDeploymentId = sh(
                         script: '''
@@ -433,9 +425,7 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
-                    if (priorDeploymentId &&
-                        priorDeploymentId != 'None') {
-
+                    if (priorDeploymentId && priorDeploymentId != 'None') {
                         env.PREVIOUS_REVISION_KEY = sh(
                             script: """
                                 aws deploy get-deployment \\
@@ -453,10 +443,7 @@ pipeline {
                     }
 
                     if (env.PREVIOUS_REVISION_KEY) {
-                        echo(
-                            "Previous verified revision: " +
-                            "${env.PREVIOUS_REVISION_KEY}"
-                        )
+                        echo "Previous verified revision: ${env.PREVIOUS_REVISION_KEY}"
                     } else {
                         echo(
                             'No previous successful CodeDeploy revision. ' +
@@ -487,7 +474,6 @@ pipeline {
                     )
 
                     try {
-
                         timeout(time: 15, unit: 'MINUTES') {
                             sh '''
                                 aws deploy wait deployment-successful \
@@ -517,7 +503,6 @@ pipeline {
                         )
 
                     } catch (Exception deploymentFailure) {
-
                         echo(
                             "Deployment did not report success: " +
                             "${deploymentFailure}"
@@ -564,7 +549,6 @@ pipeline {
                         ).trim()
 
                         if (!rollbackId || rollbackId == 'None') {
-
                             sleep time: 20, unit: 'SECONDS'
 
                             rollbackId = sh(
@@ -580,10 +564,7 @@ pipeline {
                         }
 
                         if (rollbackId && rollbackId != 'None') {
-
-                            echo(
-                                "Automatic rollback started: ${rollbackId}"
-                            )
+                            echo "Automatic rollback started: ${rollbackId}"
 
                             def autoRollbackOk = sh(
                                 script: """
