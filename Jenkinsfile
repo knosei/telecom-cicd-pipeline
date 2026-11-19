@@ -24,16 +24,32 @@ pipeline {
 
     stages {
         stage('Checkout') {
-            steps {
-                checkout scm
-                script {
-                    def branch = env.BRANCH_NAME ?: env.GIT_BRANCH ?: env.GIT_LOCAL_BRANCH ?: ''
-                    env.IS_PRODUCTION_BRANCH = (branch in ['main', 'origin/main']) ? 'true' : 'false'
-                    env.IS_STAGING_BRANCH = (branch in ['dev', 'origin/dev']) ? 'true' : 'false'
-                    echo "Resolved branch: ${branch}"
-                    echo "Production branch: ${env.IS_PRODUCTION_BRANCH}"
-                    echo "Staging branch: ${env.IS_STAGING_BRANCH}"
+            script {
+                def branch = sh(
+                    script: 'git branch --show-current',
+                    returnStdout: true
+                ).trim()
+
+                // Jenkins may check out a detached HEAD.
+                if (!branch) {
+                    branch = sh(
+                        script: 'git name-rev --name-only HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    branch = branch
+                        .replaceFirst(/^remotes\/origin\//, '')
+                        .replaceFirst(/^origin\//, '')
+                        .replaceFirst(/~.*$/, '')
                 }
+
+                env.RESOLVED_BRANCH = branch
+                env.IS_PRODUCTION_BRANCH = branch == 'main' ? 'true' : 'false'
+                env.IS_STAGING_BRANCH = branch == 'dev' ? 'true' : 'false'
+
+                echo "Resolved branch: ${env.RESOLVED_BRANCH}"
+                echo "Production branch: ${env.IS_PRODUCTION_BRANCH}"
+                echo "Staging branch: ${env.IS_STAGING_BRANCH}"
             }
         }
 
