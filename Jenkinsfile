@@ -19,14 +19,6 @@ pipeline {
 
         STAGING_URL = 'http://telecom-cicd-staging-alb-1656323563.us-east-1.elb.amazonaws.com'
 
-        IS_PRODUCTION_BRANCH = 'false'
-        IS_STAGING_BRANCH = 'false'
-        RESOLVED_BRANCH = ''
-
-        DEPLOYMENT_STARTED = 'false'
-        PREVIOUS_REVISION_KEY = ''
-        CODEDEPLOY_DEPLOYMENT_ID = ''
-        STAGING_DEPLOYMENT_ID = ''
     }
 
     stages {
@@ -94,6 +86,12 @@ pipeline {
 
                     env.IS_STAGING_BRANCH =
                         (branch == 'dev') ? 'true' : 'false'
+
+                    // Initialize runtime deployment tracking variables.
+                    env.DEPLOYMENT_STARTED = 'false'
+                    env.PREVIOUS_REVISION_KEY = ''
+                    env.CODEDEPLOY_DEPLOYMENT_ID = ''
+                    env.STAGING_DEPLOYMENT_ID = ''
 
                     echo "Resolved branch: ${env.RESOLVED_BRANCH}"
                     echo "Production branch: ${env.IS_PRODUCTION_BRANCH}"
