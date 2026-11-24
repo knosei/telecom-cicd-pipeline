@@ -39,6 +39,13 @@ def billing(customer_id):
         "currency": CURRENCY
     }), 200
 
+@app.route('/version', methods=['GET'])
+def version():
+    return jsonify({
+        "application": "Telecom Billing API",
+        "version": "1.1.0",
+        "release": "Production CI/CD validation"
+    })
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

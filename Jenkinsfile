@@ -18,11 +18,9 @@ pipeline {
 
         STAGING_URL = 'http://telecom-cicd-staging-alb-1656323563.us-east-1.elb.amazonaws.com'
         PRODUCTION_URL = 'http://telecom-cicd-alb-378185628.us-east-1.elb.amazonaws.com'
-
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 script {
@@ -57,7 +55,7 @@ pipeline {
                     if (!(branch in ['dev', 'main'])) {
                         error(
                             "Unsupported deployment branch: ${rawBranch}. " +
-                            "Deployment is blocked."
+                            'Deployment is blocked.'
                         )
                     }
 
@@ -75,7 +73,7 @@ pipeline {
                     if (actualCommit != expectedCommit) {
                         error(
                             "Checked-out commit does not match origin/${branch}. " +
-                            "Deployment is blocked."
+                            'Deployment is blocked.'
                         )
                     }
 
@@ -157,7 +155,7 @@ pipeline {
 
                     .venv/bin/python -m pytest tests/ \
                       -v \
-                      --cov=app \
+                      --cov=main \
                       --cov-report=term-missing \
                       --cov-report=xml:coverage.xml \
                       --junitxml=test-results.xml
@@ -342,7 +340,6 @@ pipeline {
                         }
 
                         echo 'Staging CodeDeploy deployment succeeded.'
-
                     } catch (Exception stagingFailure) {
                         echo "Staging deployment failed: ${stagingFailure}"
 
@@ -467,7 +464,7 @@ pipeline {
                     env.DEPLOYMENT_STARTED = 'true'
 
                     echo(
-                        "Production CodeDeploy deployment: " +
+                        'Production CodeDeploy deployment: ' +
                         "${env.CODEDEPLOY_DEPLOYMENT_ID}"
                     )
 
@@ -496,13 +493,12 @@ pipeline {
                         '''
 
                         echo(
-                            "Production deployment succeeded. " +
+                            'Production deployment succeeded. ' +
                             "Recorded image tag ${env.IMAGE_TAG}."
                         )
-
                     } catch (Exception deploymentFailure) {
                         echo(
-                            "Deployment did not report success: " +
+                            'Deployment did not report success: ' +
                             "${deploymentFailure}"
                         )
 
@@ -530,7 +526,7 @@ pipeline {
                         if (!(failedStatus in ['Failed', 'Stopped'])) {
                             error(
                                 "Deployment status is ${failedStatus}. " +
-                                "Manual fallback withheld."
+                                'Manual fallback withheld.'
                             )
                         }
 
@@ -575,15 +571,15 @@ pipeline {
 
                             if (autoRollbackOk) {
                                 error(
-                                    "New deployment failed. " +
+                                    'New deployment failed. ' +
                                     "Automatic rollback ${rollbackId} succeeded. " +
-                                    "Tracking files unchanged."
+                                    'Tracking files unchanged.'
                                 )
                             }
 
                             echo(
-                                "Automatic rollback did not succeed. " +
-                                "Evaluating fallback."
+                                'Automatic rollback did not succeed. ' +
+                                'Evaluating fallback.'
                             )
                         }
 
@@ -616,7 +612,7 @@ pipeline {
                         }
 
                         echo(
-                            "Attempting Jenkins fallback using " +
+                            'Attempting Jenkins fallback using ' +
                             "${env.PREVIOUS_REVISION_KEY}"
                         )
 
@@ -647,14 +643,14 @@ pipeline {
 
                         if (fallbackOk) {
                             error(
-                                "New deployment failed. " +
+                                'New deployment failed. ' +
                                 "Jenkins fallback ${fallbackId} succeeded. " +
-                                "Tracking files unchanged."
+                                'Tracking files unchanged.'
                             )
                         }
 
                         error(
-                            "New deployment and Jenkins fallback " +
+                            'New deployment and Jenkins fallback ' +
                             "${fallbackId} failed. Investigate CodeDeploy."
                         )
                     }

@@ -27,3 +27,16 @@ def test_billing():
     assert response.status_code == 200
     assert response.json["customer_id"] == "10001"
     assert response.json["billing_status"] == "PAID"
+
+
+def test_version():
+    with app.test_client() as client:
+        response = client.get('/version')
+
+        assert response.status_code == 200
+
+        data = response.get_json()
+
+        assert data['application'] == 'Telecom Billing API'
+        assert data['version'] == '1.1.0'
+        assert data['release'] == 'Production CI/CD validation'
