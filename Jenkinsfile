@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -18,6 +17,7 @@ pipeline {
         STAGING_CODEDEPLOY_GROUP = 'telecom-cicd-staging-group'
 
         STAGING_URL = 'http://telecom-cicd-staging-alb-1656323563.us-east-1.elb.amazonaws.com'
+        PRODUCTION_URL = 'http://telecom-cicd-alb-378185628.us-east-1.elb.amazonaws.com'
 
     }
 
@@ -333,7 +333,7 @@ pipeline {
                     echo "Staging deployment ID: ${env.STAGING_DEPLOYMENT_ID}"
 
                     try {
-                        timeout(time: 15, unit: 'MINUTES') {
+                        timeout(time: 10, unit: 'MINUTES') {
                             sh '''
                                 aws deploy wait deployment-successful \
                                   --deployment-id "$STAGING_DEPLOYMENT_ID" \
@@ -472,7 +472,7 @@ pipeline {
                     )
 
                     try {
-                        timeout(time: 15, unit: 'MINUTES') {
+                        timeout(time: 10, unit: 'MINUTES') {
                             sh '''
                                 aws deploy wait deployment-successful \
                                   --deployment-id "$CODEDEPLOY_DEPLOYMENT_ID" \
@@ -659,6 +659,33 @@ pipeline {
                         )
                     }
                 }
+            }
+        }
+
+        stage('Smoke Test (Production)') {
+            when {
+                expression {
+                    env.IS_PRODUCTION_BRANCH == 'true'
+                }
+            }
+
+            steps {
+                echo 'Testing production application health...'
+
+                sh '''
+                    set -eu
+
+                    curl \
+                      --fail \
+                      --show-error \
+                      --retry 5 \
+                      --retry-delay 3 \
+                      --connect-timeout 10 \
+                      --max-time 10 \
+                      "$PRODUCTION_URL/health"
+
+                    echo 'Production smoke test passed.'
+                '''
             }
         }
     }
