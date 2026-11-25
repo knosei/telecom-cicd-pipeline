@@ -151,32 +151,35 @@ pipeline {
                 echo 'Running automated unit tests...'
 
                 sh '''
-                    set -eu
+            set -eu
 
-                    .venv/bin/python -m pytest tests/ \
-                      -v \
-                      --cov=main \
-                      --cov-report=term-missing \
-                      --cov-report=xml:coverage.xml \
-                      --junitxml=test-results.xml
+            rm -f coverage.xml test-results.xml .coverage
 
-                    test -s coverage.xml
+            .venv/bin/python -m pytest tests/ \
+              -v \
+              --cov=app \
+              --cov-report=term-missing \
+              --cov-report=xml:coverage.xml \
+              --cov-fail-under=80 \
+              --junitxml=test-results.xml
 
-                    echo 'Unit tests passed.'
-                '''
+            test -s coverage.xml
+
+            echo 'Unit tests and coverage checks passed.'
+        '''
             }
 
             post {
                 always {
                     junit(
-                        allowEmptyResults: true,
-                        testResults: 'test-results.xml'
-                    )
+                allowEmptyResults: true,
+                testResults: 'test-results.xml'
+            )
 
                     archiveArtifacts(
-                        artifacts: 'coverage.xml',
-                        allowEmptyArchive: true
-                    )
+                artifacts: 'coverage.xml',
+                allowEmptyArchive: true
+            )
                 }
             }
         }
