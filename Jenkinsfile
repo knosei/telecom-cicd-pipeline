@@ -331,7 +331,7 @@ pipeline {
                     echo "Staging deployment ID: ${env.STAGING_DEPLOYMENT_ID}"
 
                     try {
-                        timeout(time: 10, unit: 'MINUTES') {
+                        timeout(time: 15, unit: 'MINUTES') {
                             sh '''
                                 aws deploy wait deployment-successful \
                                   --deployment-id "$STAGING_DEPLOYMENT_ID" \
@@ -469,7 +469,7 @@ pipeline {
                     )
 
                     try {
-                        timeout(time: 10, unit: 'MINUTES') {
+                        timeout(time: 20, unit: 'MINUTES') {
                             sh '''
                                 aws deploy wait deployment-successful \
                                   --deployment-id "$CODEDEPLOY_DEPLOYMENT_ID" \
