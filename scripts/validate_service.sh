@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Intentional failure for controlled rollback testing
+echo "ROLLBACK TEST: Simulating deployment validation failure."
+echo "ROLLBACK TEST: Rejecting application version 1.2.0."
+exit 1
+
+# Original validation logic retained for restoration
+
 # shellcheck disable=SC1091
 source /opt/telecom-cicd/deployment.env
 
