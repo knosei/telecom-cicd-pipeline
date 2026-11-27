@@ -38,5 +38,5 @@ def test_version():
         data = response.get_json()
 
         assert data['application'] == 'Telecom Billing API'
-        assert data['version'] == '1.2.0'
-        assert data['release'] == 'Rollback testing release'
+        assert data['version'] == '1.1.0'
+        assert data['release'] == 'Production CI/CD validation'

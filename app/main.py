@@ -43,8 +43,8 @@ def billing(customer_id):
 def version():
     return jsonify({
         "application": "Telecom Billing API",
-        "version": "1.2.0",
-        "release": "Rollback testing release"
+        "version": "1.1.0",
+        "release": "Production CI/CD validation"
     })
 
 if __name__ == "__main__":
